@@ -1,0 +1,89 @@
+{
+  "runtime": {"mode": "run"},
+  "supervisor": {"mode": "rule"},
+  "source": {
+    "name": "OpenNeuro ds000001 VLM shadow validation",
+    "type": "openneuro",
+    "dataset_id": "ds000001",
+    "uri": "https://openneuro.org",
+    "include": [
+      "dataset_description.json",
+      "participants.tsv",
+      "README",
+      "CHANGES",
+      "task-balloonanalogrisktask_bold.json",
+      "sub-01",
+      "sub-02",
+      "sub-03",
+      "sub-04",
+      "sub-05",
+      "sub-06",
+      "sub-07",
+      "sub-08",
+      "sub-09",
+      "sub-10"
+    ]
+  },
+  "storage": {
+    "raw_dir": "data/openneuro_sample",
+    "processed_dir": "data/processed",
+    "report_dir": "runs/reports",
+    "copy_local_data": false
+  },
+  "preprocess": {
+    "input_format": "bids",
+    "derivatives_dir": "data/derivatives/fmriprep_ds000001_stability",
+    "log_dir": "runs/logs/fmriprep_ds000001_stability",
+    "work_dir": "data/work/fmriprep_ds000001_stability",
+    "lock_dir": "runs/locks/fmriprep_ds000001_stability",
+    "freesurfer_license": "data/private/license.txt",
+    "fmriprep_image": "nipreps/fmriprep:latest",
+    "run_fmriprep": true,
+    "max_workers": 4,
+    "subjects": ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"],
+    "reuse_completed": true,
+    "fmriprep_options": {
+      "output_spaces": ["MNI152NLin2009cAsym"],
+      "nprocs": 16,
+      "omp_nthreads": 8,
+      "memory_mb": 32000,
+      "fs_no_reconall": true
+    }
+  },
+  "qc": {
+    "min_visual_artifacts": 3,
+    "block_database_on_review": true,
+    "human_review_enabled": true,
+    "require_review_note": true,
+    "quantitative": {
+      "enabled": true,
+      "min_mask_voxels": 1000,
+      "max_mask_edge_fraction": 0.01,
+      "min_bold_tsnr": 20,
+      "min_anat_bold_mask_dice": 0.8
+    },
+    "visual": {
+      "enabled": true,
+      "mode": "shadow",
+      "packet_dir": "data/visual_qc/packets",
+      "model_backend": "qwen2_5_vl",
+      "model_id": "data/models/Qwen2.5-VL-3B-Instruct",
+      "device": "cuda:0",
+      "allow_model_download": false,
+      "max_new_tokens": 384,
+      "min_pixels": 200704,
+      "max_pixels": 401408,
+      "max_panels": 8
+    }
+  },
+  "database": {"enabled": false},
+  "permissions": {
+    "preflight": "allow",
+    "source": "allow",
+    "fetch": "ask",
+    "preprocess": "ask",
+    "qc": "allow",
+    "db": "deny",
+    "report": "allow"
+  }
+}

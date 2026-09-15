@@ -1,0 +1,10 @@
+{
+  "backend": "mysql",
+  "host": "127.0.0.1",
+  "port": 3306,
+  "user": "neuro_agent",
+  "password_env": "NEURO_AGENT_MYSQL_PASSWORD",
+  "database": "neuro_preprocess",
+  "charset": "utf8mb4",
+  "connect_timeout": 10
+}

@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install package
+        run: python -m pip install -e ".[llm]"
+      - name: Check dependencies
+        run: python -m pip check
+      - name: Compile source
+        run: python -m compileall -q src tests evals
+      - name: Check public release files
+        run: python scripts/check_public_release.py
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Run offline quality gate
+        run: neuro-agent-eval --output-dir /tmp/neuro-agent-evals

@@ -1,0 +1,42 @@
+{
+  "runtime": {
+    "mode": "dry_run"
+  },
+  "supervisor": {
+    "mode": "rule"
+  },
+  "source": {
+    "name": "Example URL file",
+    "type": "url_file",
+    "url": "https://example.com/example.txt"
+  },
+  "storage": {
+    "raw_dir": "data/raw",
+    "processed_dir": "data/processed",
+    "report_dir": "runs/reports"
+  },
+  "preprocess": {
+    "input_format": "auto",
+    "assume_format": "bids",
+    "bids_dir": "data/bids",
+    "derivatives_dir": "data/derivatives/fmriprep",
+    "log_dir": "runs/logs/fmriprep",
+    "dcm2bids": "dcm2bids",
+    "dcm2bids_config": "configs/dcm2bids.example.json",
+    "freesurfer_license": "data/private/license.txt",
+    "fmriprep_image": "nipreps/fmriprep:latest",
+    "max_workers": 2,
+    "fmriprep_args": ["--fs-no-reconall", "--output-layout", "bids"]
+  },
+  "qc": {
+    "engine": "rule_file_image_qc",
+    "min_output_items": 0
+  },
+  "database": {
+    "backend": "jsonl",
+    "jsonl_path": "runs/db_records.jsonl"
+  },
+  "mock": {
+    "raw_items": 3
+  }
+}

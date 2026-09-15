@@ -1,0 +1,41 @@
+{
+  "sources": [
+    {
+      "name": "MR-ART",
+      "dataset_id": "ds004173",
+      "version": "1.0.2",
+      "modality": ["T1w"],
+      "role": "matched real motion artifacts with expert labels",
+      "label_scale": "1=good, 2=medium, 3=bad",
+      "license": "CC0",
+      "priority": 1
+    },
+    {
+      "name": "Prospective motion correction dataset",
+      "dataset_id": "ds004332",
+      "modality": ["T1w", "T2w", "FLAIR"],
+      "role": "controlled still/nod/shake acquisitions with expert ratings",
+      "label_scale": "1=worst, 5=best",
+      "license": "see dataset_description.json",
+      "priority": 2
+    },
+    {
+      "name": "ABIDE-I PCP visual QC",
+      "dataset_id": "ABIDE-I",
+      "modality": ["BOLD"],
+      "role": "large weakly labeled review pool for coverage and functional artifacts",
+      "label_scale": "two visual-rater fields; disagreement requires relabeling",
+      "license": "see PCP/ABIDE terms",
+      "priority": 3
+    },
+    {
+      "name": "NFBS skull-stripped repository",
+      "dataset_id": "NFBS",
+      "modality": ["T1w", "brain_mask"],
+      "role": "manual brain-mask ground truth, useful for skull-stripping QC rather than anomaly labels",
+      "label_scale": "manual mask reference",
+      "license": "see source repository",
+      "priority": 4
+    }
+  ]
+}

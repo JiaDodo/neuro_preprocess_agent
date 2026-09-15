@@ -1,0 +1,11 @@
+{
+  "descriptions": [
+    {
+      "datatype": "anat",
+      "suffix": "T1w",
+      "criteria": {
+        "SeriesDescription": "REPLACE_WITH_VERIFIED_T1_SERIES_DESCRIPTION"
+      }
+    }
+  ]
+}

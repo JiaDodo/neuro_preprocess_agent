@@ -1,0 +1,62 @@
+{
+  "runtime": {
+    "mode": "mock"
+  },
+  "supervisor": {
+    "mode": "rule"
+  },
+  "source": {
+    "name": "OpenNeuro demo dataset",
+    "type": "openneuro",
+    "dataset_id": "ds000000",
+    "uri": "https://openneuro.org"
+  },
+  "storage": {
+    "raw_dir": "data/raw",
+    "processed_dir": "data/processed",
+    "report_dir": "runs/reports",
+    "copy_local_data": true
+  },
+  "preprocess": {
+    "input_format": "auto",
+    "assume_format": "bids",
+    "bids_dir": "data/bids",
+    "derivatives_dir": "data/derivatives/fmriprep",
+    "log_dir": "runs/logs/fmriprep",
+    "work_dir": "data/work/fmriprep",
+    "lock_dir": "runs/locks/fmriprep",
+    "dcm2bids": "dcm2bids",
+    "dcm2bids_config": "configs/dcm2bids.example.json",
+    "freesurfer_license": "data/private/license.txt",
+    "fmriprep_image": "nipreps/fmriprep:latest",
+    "max_workers": 2,
+    "reuse_completed": true,
+    "validate_bids": true,
+    "isolate_converted_bids": true,
+    "input_qc_enabled": true,
+    "input_qc_require_review": true,
+    "pre_skull_stripped_nonzero_fraction": 0.3,
+    "assume_modalities": ["anat", "func"],
+    "nifti_subject_label": "001",
+    "nifti_task_name": "rest",
+    "nifti_metadata": {},
+    "fmriprep_args": ["--fs-no-reconall", "--output-layout", "bids"]
+  },
+  "qc": {
+    "engine": "rule_file_image_qc",
+    "min_output_items": 1,
+    "min_visual_artifacts": 3,
+    "fd_threshold_mm": 0.5,
+    "max_mean_fd_mm": 0.5,
+    "max_fd_outlier_fraction": 0.2,
+    "max_mean_std_dvars": 1.5,
+    "block_database_on_review": true
+  },
+  "database": {
+    "backend": "jsonl",
+    "jsonl_path": "runs/db_records.jsonl"
+  },
+  "mock": {
+    "raw_items": 3
+  }
+}

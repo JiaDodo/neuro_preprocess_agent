@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "created_at": "YYYY-MM-DDTHH:MM:SS+08:00",
+  "cases": {
+    "example_bids": {
+      "root": "/absolute/path/to/deidentified/bids",
+      "file_count": 0,
+      "total_bytes": 0,
+      "tree_sha256": "sha256-of-relative-path-size-and-file-hashes"
+    }
+  }
+}

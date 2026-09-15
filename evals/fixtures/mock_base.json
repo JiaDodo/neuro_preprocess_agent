@@ -1,0 +1,32 @@
+{
+  "runtime": {"mode": "mock"},
+  "supervisor": {"mode": "rule"},
+  "source": {
+    "name": "offline evaluation dataset",
+    "type": "openneuro",
+    "dataset_id": "ds000001"
+  },
+  "storage": {"copy_local_data": true},
+  "preprocess": {
+    "max_workers": 2,
+    "subjects": ["001", "002"],
+    "run_fmriprep": true
+  },
+  "qc": {
+    "min_output_items": 1,
+    "human_review_enabled": true,
+    "require_review_note": true,
+    "block_database_on_review": true,
+    "visual": {"enabled": false}
+  },
+  "database": {"enabled": true, "backend": "jsonl"},
+  "permissions": {
+    "source": "allow",
+    "fetch": "ask",
+    "preprocess": "ask",
+    "qc": "allow",
+    "db": "ask",
+    "report": "allow"
+  },
+  "mock": {"raw_items": 3}
+}

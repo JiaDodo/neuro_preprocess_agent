@@ -1,0 +1,47 @@
+{
+  "runtime": {
+    "mode": "run"
+  },
+  "supervisor": {
+    "mode": "rule"
+  },
+  "source": {
+    "name": "Local BIDS dataset",
+    "type": "local_path",
+    "path": "/path/to/bids"
+  },
+  "storage": {
+    "raw_dir": "data/raw",
+    "processed_dir": "data/processed",
+    "report_dir": "runs/reports"
+  },
+  "preprocess": {
+    "derivatives_dir": "/path/to/derivatives/fmriprep",
+    "freesurfer_license": "data/private/license.txt",
+    "fmriprep_image": "nipreps/fmriprep:latest",
+    "max_workers": 1
+  },
+  "qc": {
+    "engine": "rule_file_image_qc",
+    "visual": {
+      "enabled": true,
+      "mode": "shadow",
+      "packet_dir": "data/visual_qc/packets",
+      "labels_path": "data/visual_qc/labels.jsonl",
+      "model_backend": "dinov2_embedding",
+      "model_id": "data/models/facebook_dinov2-small",
+      "device": "cuda:0",
+      "allow_model_download": false,
+      "reference_path": null,
+      "anomaly_threshold": null
+    }
+  },
+  "database": {
+    "backend": "mysql",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "neuro_agent",
+    "password_env": "NEURO_AGENT_MYSQL_PASSWORD",
+    "database": "neuro_preprocess"
+  }
+}

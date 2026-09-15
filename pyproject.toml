@@ -1,0 +1,60 @@
+[project]
+name = "neuro-preprocess-agent"
+version = "0.7.0"
+description = "LangGraph supervisor-worker neuroimaging preprocessing workflow."
+requires-python = ">=3.10"
+dependencies = [
+    "langchain-core>=1.0,<2.0",
+    "langgraph>=1.0,<2.0",
+    "langgraph-checkpoint-sqlite>=3.1,<4.0",
+    "langsmith>=0.3,<1.0",
+    "nibabel>=5.2,<6.0",
+    "numpy>=1.26,<3.0",
+    "pybids>=0.22,<0.23",
+    "pydicom>=2.4,<4.0",
+    "pydantic>=2.7,<3.0",
+    "python-dotenv>=1.0,<2.0",
+]
+
+[project.scripts]
+neuro-agent = "neuro_preprocess_agent.cli:main"
+neuro-agent-eval = "neuro_preprocess_agent.evaluation_cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2,<2.0",
+    "ruff>=0.9,<1.0",
+]
+server = [
+    "langgraph-cli[inmem]>=0.4.26,<0.5; python_version >= '3.11'",
+    "langgraph-api>=0.13.2,<0.14; python_version >= '3.11'",
+]
+mysql = [
+    "PyMySQL>=1.1",
+]
+llm = [
+    "langchain-deepseek>=0.1.0",
+]
+openneuro = [
+    "openneuro-py>=2024.2.0",
+]
+visual-qc = [
+    "CairoSVG>=2.7,<3.0",
+    "Pillow>=10.0,<13.0",
+]
+visual-model = [
+    "scikit-learn>=1.4,<2.0",
+    "torch>=2.3,<3.0",
+    "torchvision>=0.18,<1.0",
+    "transformers>=4.50,<5.0",
+]
+ui = [
+    "streamlit>=1.40,<2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

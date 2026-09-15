@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "description": "Human-reviewed paired visual QC regressions using the same raw input and different preprocessing decisions.",
+  "cases": [
+    {
+      "case_id": "ds000001_sub04_pre_skull_stripped",
+      "subject": "04",
+      "anatomical_input_state": "pre_skull_stripped",
+      "failing": {
+        "run_id": "run_20260914_160650_e449685f",
+        "report": "runs/reports/run_20260914_160650_e449685f_summary.json",
+        "packet": "data/visual_qc/ten_subject_validation/sub-04_qc_packet.png",
+        "human_decision": "fail",
+        "max_anat_bold_mask_dice": 0.75,
+        "max_native_t1_mask_voxels": 400000
+      },
+      "corrected": {
+        "run_id": "run_20260914_222541_33ced198",
+        "report": "runs/reports/run_20260914_222541_33ced198_summary.json",
+        "packet": "data/visual_qc/packets/run_20260914_222541_33ced198/sub-04_qc_packet.png",
+        "human_decision": "pass",
+        "min_anat_bold_mask_dice": 0.9,
+        "min_native_t1_mask_voxels": 800000
+      },
+      "min_dice_gain": 0.2,
+      "min_native_t1_mask_ratio": 2.0
+    }
+  ]
+}

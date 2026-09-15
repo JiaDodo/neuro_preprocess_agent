@@ -1,0 +1,93 @@
+{
+  "runtime": {"mode": "run"},
+  "preflight": {
+    "enabled": true,
+    "minimum_free_disk_gb": 40,
+    "check_database": true,
+    "check_docker": true,
+    "check_resource_budget": true
+  },
+  "supervisor": {"mode": "rule"},
+  "source": {
+    "name": "OpenNeuro ds000001 cached sub-04 skull-strip regression",
+    "type": "local_path",
+    "path": "data/openneuro_sample/ds000001"
+  },
+  "storage": {
+    "raw_dir": "data/openneuro_sample",
+    "processed_dir": "data/processed",
+    "report_dir": "runs/reports",
+    "copy_local_data": false
+  },
+  "preprocess": {
+    "input_format": "bids",
+    "derivatives_dir": "data/derivatives/fmriprep_ds000001_sub04_skip_regression",
+    "log_dir": "runs/logs/fmriprep_ds000001_sub04_skip_regression",
+    "work_dir": "data/work/fmriprep_ds000001_sub04_skip_regression",
+    "lock_dir": "runs/locks/fmriprep_ds000001_sub04_skip_regression",
+    "freesurfer_license": "data/private/license.txt",
+    "fmriprep_image": "nipreps/fmriprep:latest",
+    "run_fmriprep": true,
+    "max_workers": 1,
+    "subjects": ["04"],
+    "validate_bids": true,
+    "reuse_completed": true,
+    "input_qc_enabled": true,
+    "input_qc_require_review": true,
+    "pre_skull_stripped_nonzero_fraction": 0.3,
+    "fmriprep_options": {
+      "output_layout": "bids",
+      "output_spaces": ["MNI152NLin2009cAsym"],
+      "nprocs": 16,
+      "omp_nthreads": 8,
+      "memory_mb": 32000,
+      "subject_anatomical_reference": "first-lex",
+      "skull_strip_t1w": "auto",
+      "fs_no_reconall": true,
+      "stop_on_first_crash": true
+    }
+  },
+  "qc": {
+    "engine": "rule_file_image_qc",
+    "min_output_items": 1,
+    "min_visual_artifacts": 3,
+    "fd_threshold_mm": 0.5,
+    "max_mean_fd_mm": 0.5,
+    "max_fd_outlier_fraction": 0.2,
+    "max_mean_std_dvars": 1.5,
+    "block_database_on_review": true,
+    "human_review_enabled": true,
+    "require_review_note": true,
+    "quantitative": {
+      "enabled": true,
+      "output_dir": "runs/qc",
+      "max_nonfinite_fraction": 0,
+      "min_mask_voxels": 1000,
+      "max_mask_edge_fraction": 0.01,
+      "min_bold_tsnr": 20,
+      "min_anat_bold_mask_dice": 0.8
+    },
+    "visual": {"enabled": true, "mode": "shadow", "model_backend": "none"}
+  },
+  "database": {
+    "enabled": true,
+    "backend": "mysql",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "neuro_agent",
+    "password_env": "NEURO_AGENT_MYSQL_PASSWORD",
+    "database": "neuro_preprocess",
+    "connect_timeout": 10,
+    "max_attempts": 3,
+    "retry_interval_seconds": 2
+  },
+  "permissions": {
+    "preflight": "allow",
+    "source": "allow",
+    "fetch": "ask",
+    "preprocess": "ask",
+    "qc": "allow",
+    "db": "ask",
+    "report": "allow"
+  }
+}

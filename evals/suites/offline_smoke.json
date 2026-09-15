@@ -1,0 +1,172 @@
+{
+  "schema_version": "1.0",
+  "name": "offline-smoke",
+  "description": "Deterministic end-to-end and safety-gate checks without network, Docker, GPU, or MySQL.",
+  "base_config": "../fixtures/mock_base.json",
+  "cases": [
+    {
+      "case_id": "happy_path_two_subjects",
+      "description": "The approved two-subject workflow completes and reaches the mock database worker.",
+      "tags": ["smoke", "workflow", "fanout"],
+      "request": "处理 OpenNeuro ds000001",
+      "responses": [true],
+      "assertions": [
+        {"path": "stage", "operator": "eq", "value": "end"},
+        {"path": "report.status", "operator": "eq", "value": "mocked"},
+        {"path": "qc_result.passed", "operator": "eq", "value": true},
+        {"path": "db_result.status", "operator": "eq", "value": "planned"},
+        {"path": "processed_data.subject_results", "operator": "length_eq", "value": 2}
+      ]
+    },
+    {
+      "case_id": "hard_qc_failure_blocks_database",
+      "description": "A deterministic QC hard failure must route directly to the report and never reach database persistence.",
+      "tags": ["smoke", "safety", "qc"],
+      "request": "处理 OpenNeuro ds000001",
+      "responses": [true],
+      "fault": {
+        "type": "worker_result",
+        "worker": "qc",
+        "result": {
+          "status": "failed",
+          "passed": false,
+          "hard_checks_passed": false,
+          "review_required": false,
+          "approved_for_database": false,
+          "failed_checks": ["injected:image_shape_mismatch"],
+          "checks": [],
+          "subject_qc": [],
+          "visual_qc_artifacts": []
+        }
+      },
+      "must_block_database": true,
+      "assertions": [
+        {"path": "report.status", "operator": "eq", "value": "qc_failed"},
+        {"path": "qc_result.passed", "operator": "eq", "value": false},
+        {"path": "skipped_steps", "operator": "contains", "value": "db"},
+        {"path": "db_result", "operator": "not_exists"}
+      ]
+    },
+    {
+      "case_id": "missing_source_blocks_database",
+      "description": "An invalid local source produces an auditable failure report and cannot reach database persistence.",
+      "tags": ["smoke", "safety", "input-validation"],
+      "request": "处理本地数据 __CASE_ROOT__/missing-input",
+      "config_overrides": {
+        "runtime": {"mode": "run"},
+        "source": {"name": "missing", "type": "local_path", "path": "__CASE_ROOT__/missing-input"}
+      },
+      "responses": [true],
+      "must_block_database": true,
+      "assertions": [
+        {"path": "report.status", "operator": "eq", "value": "failed"},
+        {"path": "errors.0.node", "operator": "eq", "value": "preflight"},
+        {"path": "db_result", "operator": "not_exists"}
+      ]
+    },
+    {
+      "case_id": "human_plan_change_skips_database",
+      "description": "A human can revise the plan, see a second approval interrupt, and omit database persistence.",
+      "tags": ["smoke", "hitl", "planning"],
+      "request": "处理 OpenNeuro ds000001",
+      "responses": [
+        {"execution_plan": ["source", "fetch", "preprocess", "qc", "report"]},
+        true
+      ],
+      "assertions": [
+        {"path": "report.status", "operator": "eq", "value": "mocked"},
+        {"path": "execution_plan", "operator": "not_contains", "value": "db"},
+        {"path": "db_result", "operator": "not_exists"},
+        {"path": "report", "operator": "exists"}
+      ]
+    },
+    {
+      "case_id": "human_rejects_soft_qc_review",
+      "description": "Soft QC concerns require an explicit audited decision; rejection blocks persistence.",
+      "tags": ["smoke", "safety", "hitl", "qc"],
+      "request": "处理 OpenNeuro ds000001",
+      "responses": [true, "拒绝：配准边界存在明显偏移，需要重新处理"],
+      "fault": {
+        "type": "worker_result",
+        "worker": "qc",
+        "result": {
+          "status": "review_required",
+          "passed": false,
+          "hard_checks_passed": true,
+          "review_required": true,
+          "approved_for_database": false,
+          "failed_checks": ["injected:registration_review"],
+          "checks": [],
+          "subject_qc": [],
+          "visual_qc_artifacts": []
+        }
+      },
+      "must_block_database": true,
+      "assertions": [
+        {"path": "report.status", "operator": "eq", "value": "qc_rejected"},
+        {"path": "qc_review.decision", "operator": "eq", "value": "reject"},
+        {"path": "skipped_steps", "operator": "contains", "value": "db"},
+        {"path": "db_result", "operator": "not_exists"}
+      ]
+    },
+    {
+      "case_id": "transient_fetch_retry_recovers",
+      "description": "A transient fetch failure is retried by LangGraph and the workflow recovers without human intervention.",
+      "tags": ["smoke", "recovery", "retry"],
+      "request": "处理 OpenNeuro ds000001",
+      "responses": [true],
+      "fault": {
+        "type": "transient_worker_error",
+        "worker": "fetch",
+        "failures": 1,
+        "message": "simulated temporary network outage"
+      },
+      "assertions": [
+        {"path": "report.status", "operator": "eq", "value": "mocked"},
+        {"path": "_evaluation.fault.attempts", "operator": "eq", "value": 2},
+        {"path": "_evaluation.fault.injected_failures", "operator": "eq", "value": 1},
+        {"path": "db_result.status", "operator": "eq", "value": "planned"}
+      ]
+    },
+    {
+      "case_id": "transient_database_retry_recovers",
+      "description": "A transient database failure is retried inside the database node and then succeeds.",
+      "tags": ["smoke", "recovery", "retry", "database"],
+      "request": "处理 OpenNeuro ds000001",
+      "responses": [true],
+      "config_overrides": {"database": {"retry_interval_seconds": 0}},
+      "fault": {
+        "type": "transient_worker_error",
+        "worker": "db",
+        "failures": 1,
+        "message": "simulated temporary database outage"
+      },
+      "assertions": [
+        {"path": "report.status", "operator": "eq", "value": "mocked"},
+        {"path": "db_result.status", "operator": "eq", "value": "planned"},
+        {"path": "db_result.attempts", "operator": "eq", "value": 2},
+        {"path": "_evaluation.fault.attempts", "operator": "eq", "value": 2}
+      ]
+    },
+    {
+      "case_id": "database_retry_exhaustion_reports_failure",
+      "description": "Exhausted database retries become structured state and a final failure report.",
+      "tags": ["smoke", "recovery", "database", "failure-report"],
+      "request": "处理 OpenNeuro ds000001",
+      "responses": [true],
+      "config_overrides": {"database": {"max_attempts": 3, "retry_interval_seconds": 0}},
+      "fault": {
+        "type": "transient_worker_error",
+        "worker": "db",
+        "failures": 3,
+        "message": "simulated persistent database outage"
+      },
+      "assertions": [
+        {"path": "report.status", "operator": "eq", "value": "failed"},
+        {"path": "db_result.status", "operator": "eq", "value": "failed"},
+        {"path": "errors.0.node", "operator": "eq", "value": "db"},
+        {"path": "errors.0.exhausted", "operator": "eq", "value": true}
+      ]
+    }
+  ]
+}

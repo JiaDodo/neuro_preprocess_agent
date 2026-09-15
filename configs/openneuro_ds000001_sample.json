@@ -1,0 +1,49 @@
+{
+  "runtime": {"mode": "run"},
+  "supervisor": {"mode": "rule"},
+  "source": {
+    "name": "OpenNeuro ds000001 one-subject sample",
+    "type": "openneuro",
+    "dataset_id": "ds000001",
+    "uri": "https://openneuro.org",
+    "include": [
+      "dataset_description.json",
+      "participants.tsv",
+      "README",
+      "CHANGES",
+      "task-balloonanalogrisktask_bold.json",
+      "sub-01"
+    ],
+    "max_concurrency": 4
+  },
+  "storage": {
+    "raw_dir": "data/openneuro_sample",
+    "processed_dir": "data/processed",
+    "report_dir": "runs/reports"
+  },
+  "preprocess": {
+    "input_format": "bids",
+    "run_fmriprep": false,
+    "bids_dir": "data/bids",
+    "derivatives_dir": "data/derivatives/fmriprep",
+    "log_dir": "runs/logs/fmriprep",
+    "work_dir": "data/work/fmriprep",
+    "lock_dir": "runs/locks/fmriprep",
+    "dcm2bids": "dcm2bids",
+    "dcm2bids_config": "configs/dcm2bids.example.json",
+    "freesurfer_license": "data/private/license.txt",
+    "fmriprep_image": "nipreps/fmriprep:latest",
+    "max_workers": 1,
+    "validate_bids": true
+  },
+  "qc": {"engine": "rule_file_image_qc", "min_output_items": 1},
+  "database": {"enabled": false, "backend": "jsonl", "jsonl_path": "runs/db_records.jsonl"},
+  "permissions": {
+    "source": "allow",
+    "fetch": "ask",
+    "preprocess": "ask",
+    "qc": "allow",
+    "db": "deny",
+    "report": "allow"
+  }
+}
