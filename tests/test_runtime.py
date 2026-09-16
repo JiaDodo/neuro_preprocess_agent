@@ -1000,14 +1000,28 @@ class RuntimeTestCase(unittest.TestCase):
                 "max_concurrency": 2, "reuse_existing": True,
             },
         }
-        with patch("neuro_preprocess_agent.tools.source.subprocess.run") as run:
+        with (
+            patch("neuro_preprocess_agent.tools.source.find_spec", return_value=None),
+            patch("neuro_preprocess_agent.tools.source.subprocess.run") as run,
+        ):
             result = fetch_data(state)  # type: ignore[arg-type]
         self.assertEqual(result["status"], "reused")
         self.assertEqual(result["items"], 2)
         run.assert_not_called()
 
         state["source"]["reuse_existing"] = False
-        with patch("neuro_preprocess_agent.tools.source.subprocess.run") as run:
+        with (
+            patch("neuro_preprocess_agent.tools.source.find_spec", return_value=None),
+            patch("neuro_preprocess_agent.tools.source.subprocess.run") as run,
+            self.assertRaisesRegex(RuntimeError, "openneuro-py not found"),
+        ):
+            fetch_data(state)  # type: ignore[arg-type]
+        run.assert_not_called()
+
+        with (
+            patch("neuro_preprocess_agent.tools.source.find_spec", return_value=object()),
+            patch("neuro_preprocess_agent.tools.source.subprocess.run") as run,
+        ):
             refreshed = fetch_data(state)  # type: ignore[arg-type]
         self.assertEqual(refreshed["status"], "fetched")
         run.assert_called_once()

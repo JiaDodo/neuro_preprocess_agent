@@ -81,11 +81,10 @@ def fetch_data(state: PipelineState) -> dict[str, Any]:
             for value in includes
         )
         reused = mode == "run" and source.get("reuse_existing", True) and cache_complete
-        if mode == "run":
+        if mode == "run" and not reused:
             if not installed:
                 raise RuntimeError("openneuro-py not found. Install it in the active project environment.")
-            if not reused:
-                subprocess.run(command, check=True)
+            subprocess.run(command, check=True)
         return {
             "status": "reused" if reused else ("fetched" if mode == "run" else "planned"),
             "mode": mode,
