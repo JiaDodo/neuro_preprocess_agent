@@ -110,7 +110,7 @@
 - NIfTI 转换输出按 run id 隔离。
 - 配置拼写错误不会被静默忽略。
 
-共 50 项自动测试通过；`langgraph dev` 已验证可以加载 `pipeline` 图。
+共 56 项自动测试通过；`langgraph dev` 已验证可以加载 `pipeline` 图。
 
 此外已增加产业化评测骨架：以严格 JSON 用例驱动完整 LangGraph `interrupt/resume`，在 Worker Registry 边界进行可恢复的故障注入，并生成 JSON/Markdown 评测报告。离线 smoke suite 覆盖正常闭环、QC/输入安全拦截、人工修改与拒绝、瞬时故障重试；质量门禁单独统计异常任务误放行到数据库的 `false_pass_count`。详见 `docs/evaluation.md`。
 
@@ -142,6 +142,19 @@ cd /path/to/neuro_preprocess_agent
 `sub-04` 功能 mask 体积和覆盖异常、标准空间结构/功能 mask Dice 仅 0.693，经人工复核
 拒绝后整批未入库。该验证同时暴露并修复了 BIDS 被试过滤、历史结果复用、复用日志 QC
 和 Linux 可用内存估算问题。详见 `docs/stability_validation_10subjects_20260914.md`。
+
+跨数据集 pilot 新增 4 个 OpenNeuro 数据集，覆盖双 session、双 run、儿童数据和旧版
+BIDS 元数据。2 个符合现行 schema 的案例均完成 fMRIPrep、QC 和 MySQL 入库；2 个旧版
+元数据案例在 fMRIPrep 前被 BIDS Validator 拦截，未发生失败任务误入库。验证期间修复了
+OpenNeuro 缓存幂等、preprocess 失败路由和多 session 输出发现问题。详见
+`docs/cross_dataset_validation_20260916.md`。
+
+有界并发评测复用生产 `AgentRuntime`、LangGraph `Send` 路由和 reducer，仅将耗时的单被试
+预处理替换为固定时长任务。12 个任务、5 次重复条件下，4 worker 相对 1 worker 的中位
+加速比为 `3.80x`，并行效率为 `94.9%`，实测峰值严格等于配置上限。已有七被试真实
+fMRIPrep 计算中峰值并发为 4、整体吞吐为 `4.16 subjects/hour`，其中饱和四任务批次为
+`7.05 subjects/hour`。模拟调度指标与真实历史观测分别报告，未将前者外推为 fMRIPrep
+性能。详见 `docs/concurrency_benchmark_20260916.md`。
 
 视觉模型层已增加 Qwen2.5-VL-3B-Instruct 本地推理后端。它复用结构像、功能像、运动、
 分割、标准化、配准、覆盖和 carpet plot 面板，以严格 JSON 输出被试级

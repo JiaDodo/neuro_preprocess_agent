@@ -54,6 +54,7 @@ class SourceConfig(StrictModel):
     include: list[str] = Field(default_factory=list)
     exclude: list[str] = Field(default_factory=list)
     max_concurrency: int = Field(default=5, ge=1, le=32)
+    reuse_existing: bool = True
 
     @model_validator(mode="after")
     def validate_reference(self) -> SourceConfig:

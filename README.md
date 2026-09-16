@@ -8,6 +8,8 @@
 
 最新十被试验证中 fMRIPrep 10/10 完成，规则与定量 QC 识别出一名功能 mask/配准异常被试并触发人工拒绝，整批数据库写入被阻断。详见 [十被试稳定性验证](docs/stability_validation_10subjects_20260914.md)。
 
+跨数据集 pilot 进一步覆盖多 session、双 run、儿童和旧版 BIDS 元数据；验证过程中发现并修复失败路由、OpenNeuro 缓存幂等和完整 BIDS schema 预检问题。详见 [跨数据集验证](docs/cross_dataset_validation_20260916.md)。
+
 ## 主流程
 
 ```text
@@ -225,6 +227,12 @@ export NEURO_AGENT_MYSQL_PASSWORD="$MYSQL_PASSWORD"
 自动测试覆盖完整 mock 闭环、多阶段 HITL、输入 T1w 筛查与逐被试参数改写、OpenNeuro 选择性下载配置、严格配置、fMRIPrep 参数门禁、NIfTI manifest、subject fan-out、BIDS 预检、运行前检查、定量 QC、数据库重试收敛、线程生命周期、并发/幂等 JSONL、权限拒绝、失败报告和视觉 QC 数据构建。
 
 离线系统评测进一步覆盖正常双被试闭环、QC 硬失败拦截、无效输入、人工修改计划、人工拒绝 QC 和瞬时下载故障恢复。质量门禁要求所有用例通过且未通过 QC 的任务误入库次数为 0；JSON、Markdown 报告和隔离工作目录写入 `evals/reports/`。详细定义和真实数据验收路线见 [评测文档](docs/evaluation.md)。
+
+并发评测通过生产 LangGraph 图执行 12 个固定时长 subject 任务：`max_workers=4` 时相对
+单 worker 达到 `3.80x` 加速和 `94.9%` 并行效率，且实测峰值并发未超过配置上限。既有
+七被试真实 fMRIPrep 计算的峰值并发为 4、整体吞吐为 `4.16 subjects/hour`；这些真实数据
+属于历史运行观测，不等同于受控加速实验。复现命令和口径见
+[并发评测](docs/concurrency_benchmark_20260916.md)。
 
 视觉 QC 的数据构建、标签和模型命令见 [视觉 QC 文档](docs/visual_qc.md)。
 人工标注界面及盲标规范见 [人工标注说明](docs/human_annotation.md)。

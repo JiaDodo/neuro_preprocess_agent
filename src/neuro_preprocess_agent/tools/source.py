@@ -34,6 +34,7 @@ def resolve_source(state: PipelineState) -> dict[str, Any]:
         "include": source_config.get("include", []),
         "exclude": source_config.get("exclude", []),
         "max_concurrency": source_config.get("max_concurrency", 5),
+        "reuse_existing": source_config.get("reuse_existing", True),
     }
     if source_type == "local_path":
         path = project_path(source["path"], state["config"].get("project_root"))
@@ -73,12 +74,20 @@ def fetch_data(state: PipelineState) -> dict[str, Any]:
         for value in source.get("exclude", []):
             command.extend(["--exclude", value])
         command.extend(["--max-concurrent-downloads", str(source.get("max_concurrency", 5))])
+        includes = source.get("include", [])
+        cache_complete = bool(includes) and all(
+            (candidate := output_dir / value).is_file()
+            or (candidate.is_dir() and any(item.is_file() for item in candidate.rglob("*")))
+            for value in includes
+        )
+        reused = mode == "run" and source.get("reuse_existing", True) and cache_complete
         if mode == "run":
             if not installed:
                 raise RuntimeError("openneuro-py not found. Install it in the active project environment.")
-            subprocess.run(command, check=True)
+            if not reused:
+                subprocess.run(command, check=True)
         return {
-            "status": "fetched" if mode == "run" else "planned",
+            "status": "reused" if reused else ("fetched" if mode == "run" else "planned"),
             "mode": mode,
             "source_type": "openneuro",
             "dataset_id": dataset_id,

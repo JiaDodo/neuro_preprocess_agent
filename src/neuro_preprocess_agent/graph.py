@@ -467,6 +467,10 @@ def input_qc_node(state: PipelineState) -> dict[str, Any]:
         return {"stage": "failed", "errors": [error], "events": [event]}
 
 
+def route_after_preprocess(state: PipelineState) -> Literal["input_qc", "supervisor"]:
+    return "supervisor" if state.get("errors") else "input_qc"
+
+
 def input_qc_review_node(state: PipelineState) -> Command[Literal["preprocess_dispatch", "report"]]:
     result = dict(state["input_qc_result"])
     flagged = [item for item in result["subject_results"] if item["review_required"]]
@@ -675,7 +679,11 @@ def build_graph(checkpointer: Any | None = None):
     )
     for worker in ("source", "fetch", "qc", "db"):
         builder.add_edge(worker, "supervisor")
-    builder.add_edge("preprocess", "input_qc")
+    builder.add_conditional_edges(
+        "preprocess",
+        route_after_preprocess,
+        ["input_qc", "supervisor"],
+    )
     builder.add_conditional_edges(
         "input_qc",
         route_after_input_qc,

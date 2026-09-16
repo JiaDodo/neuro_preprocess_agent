@@ -117,13 +117,14 @@ def run_qc(state: PipelineState) -> dict[str, Any]:
     for subject in processed.get("subjects", []):
         subject_dir = fmriprep_dir / f"sub-{subject}"
         anat_dir = subject_dir / "anat"
-        func_dir = subject_dir / "func"
         figures_dir = subject_dir / "figures"
         report = fmriprep_dir / f"sub-{subject}.html"
         modalities = subject_modalities.get(subject) or {"anat": True, "func": True}
         required = {"subject_html_report": report}
         image_outputs: list[str] = []
         spatial_pairs: list[tuple[str, str, str]] = []
+        confound_paths: list[Path] = []
+        primary_functional: tuple[Path, Path] | None = None
         if modalities.get("anat"):
             preproc_t1w = next(iter(sorted(anat_dir.glob("*desc-preproc_T1w.nii.gz"))), anat_dir / "missing-preproc-T1w.nii.gz")
             t1w_mask = _matching_mask(
@@ -138,19 +139,39 @@ def run_qc(state: PipelineState) -> dict[str, Any]:
             image_outputs.extend(("preproc_t1w", "t1w_brain_mask"))
             spatial_pairs.append(("anat", "preproc_t1w", "t1w_brain_mask"))
         if modalities.get("func"):
-            preproc_bold = next(iter(sorted(func_dir.glob("*desc-preproc_bold.nii.gz"))), func_dir / "missing-preproc-bold.nii.gz")
-            bold_mask = _matching_mask(
-                preproc_bold,
-                sorted(func_dir.glob("*desc-brain_mask.nii.gz")),
-                func_dir / "missing-bold-mask.nii.gz",
+            sessions = processed.get("subject_sessions", {}).get(subject, [])
+            func_locations = (
+                [(session, subject_dir / f"ses-{session}" / "func") for session in sessions]
+                if sessions else [(None, subject_dir / "func")]
             )
-            required.update({
-                "preproc_bold": preproc_bold,
-                "bold_brain_mask": bold_mask,
-                "confounds_timeseries": next(iter(sorted(func_dir.glob("*desc-confounds_timeseries.tsv"))), func_dir / "missing-confounds.tsv"),
-            })
-            image_outputs.extend(("preproc_bold", "bold_brain_mask"))
-            spatial_pairs.append(("func", "preproc_bold", "bold_brain_mask"))
+            for session, func_dir in func_locations:
+                preproc_candidates = sorted(func_dir.glob("*space-*_desc-preproc_bold.nii.gz"))
+                if not preproc_candidates:
+                    preproc_candidates = sorted(func_dir.glob("*desc-preproc_bold.nii.gz"))
+                if not preproc_candidates:
+                    preproc_candidates = [func_dir / "missing-preproc-bold.nii.gz"]
+                for index, preproc_bold in enumerate(preproc_candidates, start=1):
+                    label = f"ses-{session}" if session else "root"
+                    suffix = "" if len(func_locations) == 1 and len(preproc_candidates) == 1 else f":{label}:run-{index}"
+                    bold_mask = _matching_mask(
+                        preproc_bold,
+                        sorted(func_dir.glob("*desc-brain_mask.nii.gz")),
+                        func_dir / "missing-bold-mask.nii.gz",
+                    )
+                    prefix = preproc_bold.name.split("_space-", 1)[0].split("_desc-preproc_bold", 1)[0]
+                    confounds = next(
+                        iter(sorted(func_dir.glob(f"{prefix}*desc-confounds_timeseries.tsv"))),
+                        func_dir / "missing-confounds.tsv",
+                    )
+                    bold_name = f"preproc_bold{suffix}"
+                    mask_name = f"bold_brain_mask{suffix}"
+                    confounds_name = f"confounds_timeseries{suffix}"
+                    required.update({bold_name: preproc_bold, mask_name: bold_mask, confounds_name: confounds})
+                    image_outputs.extend((bold_name, mask_name))
+                    spatial_pairs.append((f"func{suffix}", bold_name, mask_name))
+                    confound_paths.append(confounds)
+                    if primary_functional is None:
+                        primary_functional = (preproc_bold, bold_mask)
         subject_checks: list[dict[str, Any]] = []
         for name, path in required.items():
             exists = path.exists()
@@ -178,7 +199,13 @@ def run_qc(state: PipelineState) -> dict[str, Any]:
                 "severity": "error",
             })
 
-        quantitative_images = {name: required[name] for name in image_outputs}
+        quantitative_images = {
+            name: required[name]
+            for name in ("preproc_t1w", "t1w_brain_mask")
+            if name in required
+        }
+        if primary_functional is not None:
+            quantitative_images["preproc_bold"], quantitative_images["bold_brain_mask"] = primary_functional
         standard_t1w_mask = next(iter(sorted(anat_dir.glob("*space-*_desc-brain_mask.nii.gz"))), None)
         if standard_t1w_mask is not None:
             quantitative_images["t1w_standard_brain_mask"] = standard_t1w_mask
@@ -199,10 +226,12 @@ def run_qc(state: PipelineState) -> dict[str, Any]:
         })
         visual_artifacts.append({"subject": subject, "html_report": str(report), "figures": [str(path) for path in figure_files]})
 
-        confounds = required.get("confounds_timeseries")
-        if confounds and confounds.exists():
-            with confounds.open(encoding="utf-8") as file_handle:
-                rows = list(csv.DictReader(file_handle, delimiter="\t"))
+        existing_confounds = list(dict.fromkeys(path for path in confound_paths if path.exists()))
+        if existing_confounds:
+            rows: list[dict[str, str]] = []
+            for confounds in existing_confounds:
+                with confounds.open(encoding="utf-8") as file_handle:
+                    rows.extend(csv.DictReader(file_handle, delimiter="\t"))
             metrics: dict[str, Any] = {"rows": len(rows)}
             for column in ("framewise_displacement", "std_dvars", "dvars"):
                 values = _numeric_column(rows, column)

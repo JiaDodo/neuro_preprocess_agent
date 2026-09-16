@@ -373,6 +373,41 @@ def inspect_bids_dataset(bids_dir: Path, selected_subjects: list[str] | None = N
     }
 
 
+def validate_bids_with_container(bids_dir: Path, image: str) -> dict[str, Any]:
+    command = [
+        "docker", "run", "--rm", "--entrypoint", "bids-validator",
+        "-v", f"{bids_dir.resolve()}:/data:ro", image, "/data", "--json",
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        detail = (completed.stderr or completed.stdout).strip()[-2000:]
+        return {
+            "status": "failed", "passed": False,
+            "errors": [f"BIDS Validator did not return JSON: {detail}"],
+            "warnings": [], "command": command,
+        }
+
+    def issue_messages(level: str) -> list[str]:
+        messages: list[str] = []
+        for group in payload.get("issues", {}).get(level, []):
+            files = group.get("files") or [{}]
+            for item in files:
+                path = item.get("file", {}).get("relativePath") or item.get("file", {}).get("name") or "dataset"
+                evidence = item.get("evidence") or group.get("reason") or group.get("key") or "unknown issue"
+                messages.append(f"{path}: {evidence}")
+        return messages
+
+    errors = issue_messages("errors")
+    warnings = issue_messages("warnings")
+    return {
+        "status": "completed", "passed": completed.returncode == 0 and not errors,
+        "errors": errors, "warnings": warnings, "command": command,
+        "summary": payload.get("summary", {}),
+    }
+
+
 def prepare_preprocessing(state: PipelineState) -> dict[str, Any]:
     config = state["config"]
     mode = config["runtime"]["mode"]
@@ -567,6 +602,18 @@ def prepare_preprocessing(state: PipelineState) -> dict[str, Any]:
     if _is_bids_dir(bids_dir):
         bids_preflight = inspect_bids_dataset(bids_dir, settings.get("subjects"))
         subjects = bids_preflight["subjects"] or subjects
+        if (
+            mode == "run"
+            and settings.get("validate_bids", True)
+            and settings.get("run_fmriprep", True)
+            and not settings.get("fmriprep_options", {}).get("skip_bids_validation", False)
+            and bids_preflight["passed"]
+        ):
+            official_validation = validate_bids_with_container(bids_dir, settings["fmriprep_image"])
+            bids_preflight["official_validator"] = official_validation
+            bids_preflight["passed"] = official_validation["passed"]
+            bids_preflight["errors"].extend(official_validation["errors"])
+            bids_preflight["warnings"].extend(official_validation["warnings"])
     else:
         assumed = set(settings.get("assume_modalities", ["anat", "func"]))
         if input_format == "nifti" and any(nifti_type_counts.values()):

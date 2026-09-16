@@ -4,6 +4,7 @@ import gzip
 import json
 import os
 import struct
+import subprocess
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -26,6 +27,7 @@ from neuro_preprocess_agent.graph import (
     build_graph,
     graph,
     qc_review_node,
+    route_after_preprocess,
 )
 from neuro_preprocess_agent.interaction import (
     parse_human_response,
@@ -39,10 +41,12 @@ from neuro_preprocess_agent.tools.preprocess import (
     inspect_bids_dataset,
     prepare_preprocessing,
     run_subject_preprocessing,
+    validate_bids_with_container,
 )
 from neuro_preprocess_agent.tools.qc import run_qc
 from neuro_preprocess_agent.tools.qc_metrics import compute_quantitative_metrics
 from neuro_preprocess_agent.tools.registry import WorkerPolicyError
+from neuro_preprocess_agent.tools.source import fetch_data
 from neuro_preprocess_agent.tools.workers import (
     build_worker_registry,
     generate_report,
@@ -173,6 +177,10 @@ class RuntimeTestCase(unittest.TestCase):
         result = runtime.resume(True, "worker-fail")
         self.assertEqual(result["report"]["status"], "failed")
         self.assertEqual(result["errors"][0]["node"], "source")
+
+    def test_preprocess_failure_skips_input_qc(self) -> None:
+        self.assertEqual(route_after_preprocess({"errors": [{"node": "preprocess"}]}), "supervisor")
+        self.assertEqual(route_after_preprocess({"preprocess_context": {}}), "input_qc")
 
     def test_natural_language_approval_parser(self) -> None:
         parsed = parse_human_response("数据来源改成本地/tmp/demo，并行数改成3，跳过入库")
@@ -421,6 +429,26 @@ class RuntimeTestCase(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertTrue(any("RepetitionTime" in error for error in result["errors"]))
 
+    def test_container_bids_validator_errors_are_structured(self) -> None:
+        payload = {
+            "issues": {
+                "errors": [{
+                    "reason": "Invalid JSON file",
+                    "files": [{
+                        "file": {"relativePath": "/task-demo_bold.json"},
+                        "evidence": ".Field should match format uri",
+                    }],
+                }],
+                "warnings": [],
+            },
+            "summary": {"subjects": ["01"]},
+        }
+        completed = subprocess.CompletedProcess(["docker"], 1, stdout=json.dumps(payload), stderr="")
+        with patch("neuro_preprocess_agent.tools.preprocess.subprocess.run", return_value=completed):
+            result = validate_bids_with_container(self.root, "nipreps/fmriprep:test")
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["errors"], ["/task-demo_bold.json: .Field should match format uri"])
+
     def test_t1_only_qc_does_not_require_functional_outputs(self) -> None:
         derivatives = self.root / "derivatives"
         subject_dir = derivatives / "sub-01"
@@ -524,6 +552,51 @@ class RuntimeTestCase(unittest.TestCase):
         self.assertFalse(qc_result["approved_for_database"])
         self.assertEqual(db_result["status"], "blocked_by_qc")
         self.assertEqual(report["status"], "review_required")
+
+    def test_qc_discovers_functional_outputs_in_multiple_sessions(self) -> None:
+        derivatives = self.root / "derivatives"
+        anat_dir = derivatives / "sub-01" / "anat"
+        figures_dir = derivatives / "sub-01" / "figures"
+        write_test_nifti(anat_dir / "sub-01_desc-preproc_T1w.nii.gz", (2, 2, 2))
+        write_test_nifti(anat_dir / "sub-01_desc-brain_mask.nii.gz", (2, 2, 2))
+        for session in ("test", "retest"):
+            func_dir = derivatives / "sub-01" / f"ses-{session}" / "func"
+            prefix = f"sub-01_ses-{session}_task-demo"
+            write_test_nifti(func_dir / f"{prefix}_space-MNI_desc-preproc_bold.nii.gz", (2, 2, 2, 4))
+            write_test_nifti(func_dir / f"{prefix}_space-MNI_desc-brain_mask.nii.gz", (2, 2, 2))
+            (func_dir / f"{prefix}_desc-confounds_timeseries.tsv").write_text(
+                "framewise_displacement\tstd_dvars\n0.1\t1.0\n", encoding="utf-8"
+            )
+        figures_dir.mkdir(parents=True)
+        for index in range(3):
+            (figures_dir / f"figure-{index}.svg").write_text("<svg></svg>", encoding="utf-8")
+        (derivatives / "sub-01.html").write_text("report", encoding="utf-8")
+        log_path = self.root / "sub-01.log"
+        log_path.write_text("fMRIPrep finished successfully!", encoding="utf-8")
+        state = {
+            "run_id": "multi-session-qc",
+            "config": {
+                "runtime": {"mode": "run"},
+                "qc": {
+                    "engine": "rule_file_image_qc", "min_output_items": 1,
+                    "min_visual_artifacts": 3, "quantitative": {"enabled": False},
+                },
+            },
+            "processed_data": {
+                "output_items": 8, "fmriprep_dir": str(derivatives), "subjects": ["01"],
+                "subject_modalities": {"01": {"anat": True, "func": True}},
+                "subject_sessions": {"01": ["retest", "test"]},
+                "subject_results": [{"subject": "01", "returncode": 0, "status": "completed", "log_file": str(log_path)}],
+                "bids_preflight": {"status": "completed", "passed": True, "errors": [], "warnings": []},
+            },
+        }
+
+        result = run_qc(state)  # type: ignore[arg-type]
+
+        self.assertTrue(result["passed"])
+        names = {item["name"] for item in result["subject_qc"][0]["checks"]}
+        self.assertTrue(any("ses-test" in name for name in names))
+        self.assertTrue(any("ses-retest" in name for name in names))
 
     def test_spatial_shape_mismatch_is_hard_qc_failure(self) -> None:
         derivatives = self.root / "derivatives"
@@ -908,6 +981,36 @@ class RuntimeTestCase(unittest.TestCase):
 
         self.assertEqual(updated["source"]["include"], ["dataset_description.json", "sub-01"])
         self.assertEqual(updated["source"]["max_concurrency"], 2)
+
+    def test_openneuro_selective_cache_is_reused_without_redownload(self) -> None:
+        dataset = self.root / "raw" / "ds000102"
+        (dataset / "sub-01" / "anat").mkdir(parents=True)
+        (dataset / "dataset_description.json").write_text('{"Name":"legacy dataset"}', encoding="utf-8")
+        (dataset / "sub-01" / "anat" / "sub-01_T1w.nii.gz").write_bytes(b"nifti")
+        state = {
+            "run_id": "cache-test",
+            "config": {
+                "project_root": str(self.root),
+                "runtime": {"mode": "run"},
+                "storage": {"raw_dir": "raw"},
+            },
+            "source": {
+                "type": "openneuro", "dataset_id": "ds000102", "tag": None,
+                "include": ["dataset_description.json", "sub-01"], "exclude": [],
+                "max_concurrency": 2, "reuse_existing": True,
+            },
+        }
+        with patch("neuro_preprocess_agent.tools.source.subprocess.run") as run:
+            result = fetch_data(state)  # type: ignore[arg-type]
+        self.assertEqual(result["status"], "reused")
+        self.assertEqual(result["items"], 2)
+        run.assert_not_called()
+
+        state["source"]["reuse_existing"] = False
+        with patch("neuro_preprocess_agent.tools.source.subprocess.run") as run:
+            refreshed = fetch_data(state)  # type: ignore[arg-type]
+        self.assertEqual(refreshed["status"], "fetched")
+        run.assert_called_once()
 
 
 if __name__ == "__main__":
