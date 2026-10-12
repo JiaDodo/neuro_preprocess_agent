@@ -110,9 +110,14 @@
 - NIfTI 转换输出按 run id 隔离。
 - 配置拼写错误不会被静默忽略。
 
-共 56 项自动测试通过；`langgraph dev` 已验证可以加载 `pipeline` 图。
+共 57 项自动测试通过；`langgraph dev` 已验证可以加载 `pipeline` 图。
 
-此外已增加产业化评测骨架：以严格 JSON 用例驱动完整 LangGraph `interrupt/resume`，在 Worker Registry 边界进行可恢复的故障注入，并生成 JSON/Markdown 评测报告。离线 smoke suite 覆盖正常闭环、QC/输入安全拦截、人工修改与拒绝、瞬时故障重试；质量门禁单独统计异常任务误放行到数据库的 `false_pass_count`。详见 `docs/evaluation.md`。
+此外已增加分层评测框架：以严格 JSON 用例驱动完整 LangGraph `interrupt/resume`，在
+Worker Registry 边界注入故障，并从 `events` 与 `supervisor_decisions` 提取真实执行轨迹。
+默认 10 个离线场景分别统计计划精确匹配率、必须步骤召回率、禁用动作、HITL 匹配率、
+决策开销、故障恢复率和数据库 `false_pass_count`。当前默认 suite 使用规则 Supervisor，
+报告显式显示 LLM 决策覆盖为 0，避免将确定性策略结果表述为模型能力。详见
+`docs/evaluation.md`。
 
 现有真实数据 `sub-local-demo` 已用新版规则重新验证：关键输出和 4 个 NIfTI header 通过，confounds 共 240 行，12 个视觉报告产物存在，fMRIPrep 成功日志通过。该结果只代表结构与产物完整，不代表已经完成视觉异常诊断。
 

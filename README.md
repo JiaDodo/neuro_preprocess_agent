@@ -226,7 +226,11 @@ export NEURO_AGENT_MYSQL_PASSWORD="$MYSQL_PASSWORD"
 
 自动测试覆盖完整 mock 闭环、多阶段 HITL、输入 T1w 筛查与逐被试参数改写、OpenNeuro 选择性下载配置、严格配置、fMRIPrep 参数门禁、NIfTI manifest、subject fan-out、BIDS 预检、运行前检查、定量 QC、数据库重试收敛、线程生命周期、并发/幂等 JSONL、权限拒绝、失败报告和视觉 QC 数据构建。
 
-离线系统评测进一步覆盖正常双被试闭环、QC 硬失败拦截、无效输入、人工修改计划、人工拒绝 QC 和瞬时下载故障恢复。质量门禁要求所有用例通过且未通过 QC 的任务误入库次数为 0；JSON、Markdown 报告和隔离工作目录写入 `evals/reports/`。详细定义和真实数据验收路线见 [评测文档](docs/evaluation.md)。
+离线评测进一步覆盖正常闭环、QC 硬失败、无效输入、人工修改、故障恢复、最小计划选择和
+自然语言参数提取。评测器从真实 LangGraph 轨迹计算计划精确匹配、必须步骤召回、禁用动作、
+HITL 升级和 Supervisor 决策开销，并将其与数据库误放行指标共同作为 CI gate。默认 suite
+使用规则 Supervisor，因此这些轨迹指标不代表 LLM 规划准确率；详细定义见
+[评测文档](docs/evaluation.md)。
 
 并发评测通过生产 LangGraph 图执行 12 个固定时长 subject 任务：`max_workers=4` 时相对
 单 worker 达到 `3.80x` 加速和 `94.9%` 并行效率，且实测峰值并发未超过配置上限。既有

@@ -2,13 +2,20 @@
 
 ## 1. 目标
 
-本项目的评测对象不是单一模型，而是“数据输入、LangGraph 调度、预处理、QC、人工复核、数据库门禁、报告”组成的完整系统。评测必须同时回答：
+本项目分别评测完整系统和 Agent 行为轨迹，而不是用单一“测试通过率”混合描述。评测必须同时回答：
 
 1. 正常任务能否稳定完成；
 2. 错误数据和异常结果能否被拦截；
 3. 暂时性故障能否自动恢复；
 4. 人工修改与复核是否留下可审计结果；
-5. 未通过 QC 的数据是否可能误入数据库。
+5. 未通过 QC 的数据是否可能误入数据库；
+6. 计划是否符合用户意图，是否选择了必要 Worker；
+7. 是否调用了被禁止或不必要的 Worker；
+8. 应当人工确认时是否触发 HITL，决策次数是否超出预算。
+
+设计上遵循 LangSmith 对离线 benchmark、回归测试、确定性 code evaluator 和数据集级 summary
+evaluator 的分层定义；有明确 Golden Plan/Worker 轨迹的安全检查优先使用代码评分，主观质量
+才考虑 LLM-as-judge。参考 [LangSmith Evaluation types](https://docs.langchain.com/langsmith/evaluation-types)。
 
 核心安全指标是 `false_pass_count`：已标记为必须阻断入库的用例，却被 QC 放行或触达数据库 Worker 的次数。当前质量门禁要求所有用例通过且该指标为 0。
 
@@ -28,6 +35,8 @@
 | 下载瞬时故障 | LangGraph RetryPolicy 重试后恢复 |
 | 数据库瞬时故障 | 数据库节点重试后恢复并保持幂等 |
 | 数据库持续故障 | 重试耗尽后生成结构化失败报告 |
+| 仅预处理请求 | 生成最小计划，不调用 QC 和数据库 Worker |
+| 自然语言资源参数 | 正确提取并行数、进程数和内存，并按要求跳过入库 |
 
 运行全部离线评测：
 
@@ -63,7 +72,12 @@ Suite 使用严格 Pydantic schema 校验。一个用例由以下信息组成：
 - `responses`：按顺序恢复 LangGraph interrupt，测试 HITL；
 - `fault`：在 Worker Registry 边界注入固定结果或瞬时错误；
 - `assertions`：对最终 Graph State 做路径断言；
-- `must_block_database`：声明该场景绝不能触达数据库。
+- `must_block_database`：声明该场景绝不能触达数据库；
+- `agent_expectation.expected_plan`：期望的最终结构化计划；
+- `agent_expectation.required_steps`：轨迹中必须出现的 Worker；
+- `agent_expectation.forbidden_steps`：轨迹中绝不能出现的 Worker；
+- `agent_expectation.expected_interrupts`：期望的 HITL 中断次数；
+- `agent_expectation.max_supervisor_decisions`：允许的 Supervisor 决策预算。
 
 故障注入只在单个用例的上下文中生效，结束后恢复原 Worker。生产代码不包含 `if testing` 分支。
 
@@ -93,32 +107,63 @@ Suite 使用严格 Pydantic schema 校验。一个用例由以下信息组成：
 人工确认使用 `--skull-strip-t1w skip` 后，新输出判为 `pass`。机器可读定义位于
 `evals/manifests/visual_qc_golden_pairs.json`。
 
-## 4. 分层评测路线
+## 4. Agent 行为指标
+
+评测器从实际 LangGraph `events` 和 `supervisor_decisions` 中提取轨迹，不依赖最终报告反推过程：
+
+| 指标 | 含义 |
+|---|---|
+| `agent_pass_rate` | 满足全部计划、步骤、HITL 和决策预算契约的用例比例 |
+| `plan_exact_match_rate` | 最终计划与 Golden Plan 完全一致的比例 |
+| `required_step_recall` | 期望 Worker 在实际轨迹中的覆盖率 |
+| `step_order_match_rate` | 必须 Worker 按 Golden Case 顺序执行的用例比例 |
+| `forbidden_action_count` | 调用了用例明确禁止的 Worker 的次数 |
+| `hitl_match_rate` | 实际中断次数符合人工升级预期的比例 |
+| `supervisor_decisions_mean` | 每个任务平均经过的 Supervisor 决策次数 |
+| `llm_decision_cases` | 轨迹中真实出现 LLM Supervisor 决策的用例数 |
+
+默认离线 suite 当前包含 10 个场景。确定性策略基线为：10/10 Agent 契约通过、计划精确
+匹配率 100%、必须步骤召回率 100%、禁用动作 0、HITL 次数匹配率 100%。这些数字衡量
+的是规则 Supervisor 与 LangGraph 轨迹，不是 LLM 规划准确率；默认 suite 使用
+`supervisor.mode=rule`，因此 `llm_decision_cases=0`。真实 LLM 评测必须单独报告，不能引用
+这组 100% 指标。
+
+## 5. 分层评测路线
 
 ### L1 单元与契约测试
 
 验证配置约束、BIDS 预检、模态识别、fMRIPrep 命令生成、QC 指标、数据库幂等和报告 schema。由 `unittest` 在每次 CI 中执行。
 
-### L2 离线系统评测
+### L2 离线系统与轨迹评测
 
-验证 LangGraph 路由、checkpoint/resume、HITL、故障重试、失败隔离和数据库安全门禁。由默认 offline suite 执行。
+验证 LangGraph 路由、checkpoint/resume、HITL、故障重试、失败隔离、计划匹配、Worker
+选择和数据库安全门禁。由默认 offline suite 执行。
 
-### L3 真实工具集成评测
+### L3 LLM Supervisor 回放评测
+
+固定用户请求、工具 catalog 和 Worker observation，记录结构化 Supervisor 输出并回放，统计
+schema 合法率、计划匹配率、参数正确率、非法 Worker 选择、人工升级准确率、平均模型调用
+次数、token 和时延。该层尚未完成，因此当前项目不能宣称已经验证 LLM 动态重规划能力。
+
+### L4 真实工具集成评测
 
 使用少量去标识 DICOM、NIfTI 和 BIDS fixture，执行 dcm2bids、fMRIPrep 和 MySQL。建议固定容器 digest、工具版本和期望产物清单，在有 Docker 的自托管 runner 上运行，不放入普通 GitHub Actions。
 
-### L4 Golden Dataset 验收
+### L5 Golden Dataset 验收
 
 建立 30 至 50 个有人工结论的用例，至少覆盖正常数据、缺文件、错误元数据、配准失败、头动过大、伪影和多被试/多 session。按数据集和站点拆分 train/reference 与 test，避免同源泄漏。
 
-### L5 稳定性与运营指标
+### L6 稳定性与运营指标
 
 连续运行 10、50、100 个被试，统计被试成功率、整批成功率、失败隔离率、重试恢复率、吞吐、P50/P95 时长、CPU/GPU/内存峰值、磁盘增量和单被试成本。
 
-## 5. VLM QC 的后续接入
+## 6. VLM QC 的后续接入
 
 VLM 尚不进入阻断链路。接入顺序应为 shadow mode、与人工标签对照、阈值校准，再决定是否参与复核排序。需要报告灵敏度、特异度、AUROC/AUPRC，并重点控制“明显异常被判为正常”的假阴性率。没有足够真实异常前，合成异常只能验证工程链路，不能证明临床或科研泛化能力。
 
-## 6. 当前边界
+## 7. 当前边界
 
-离线 suite 证明的是调度和安全门禁逻辑，不证明 fMRIPrep 算法精度或视觉 QC 模型效果。真实 MySQL 已验证事务写入、同一 run 更新、被试级记录和 QC 阻断；真实 suite 已覆盖 BIDS 检查与 DICOM 转换，但仍需增加独立站点、多 session 和真实异常数据。
+离线 suite 证明的是确定性 Supervisor、调度轨迹和安全门禁逻辑，不证明 LLM 规划能力、
+fMRIPrep 算法精度或视觉 QC 模型泛化。真实 MySQL 已验证事务写入、同一 run 更新、被试级
+记录和 QC 阻断；真实 suite 已覆盖 BIDS 检查与 DICOM 转换，但仍需增加 LLM 决策回放、
+独立站点、多 session 和真实异常数据。

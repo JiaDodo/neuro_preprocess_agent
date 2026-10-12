@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added Golden trajectory contracts and Agent behavior metrics for plan matching, required and forbidden Worker calls, execution order, HITL escalation, decision budgets, and explicit LLM-decision coverage.
 - Added pre-fMRIPrep anatomical input QC with per-subject skull-stripping decisions, conservative HITL review, command fingerprint updates, and real ten-subject validation.
 - Restricted CLI `--yes` to initial plan approval so preflight, input-QC, and output-QC reviews still require explicit human decisions.
 - Added interactive CLI heartbeats with elapsed time and active fMRIPrep log paths for long-running graph nodes.

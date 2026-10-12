@@ -141,6 +141,8 @@ def supervisor_node(state: PipelineState) -> dict[str, Any]:
         "next_node": decision["next_node"],
         "supervisor_decisions": [{
             "time": event["time"],
+            "observed_stage": state.get("stage"),
+            "plan": decision["execution_plan"],
             "next_node": decision["next_node"],
             "reason": decision["reason"],
             "mode": decision["mode"],

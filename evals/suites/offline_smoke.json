@@ -10,6 +10,13 @@
       "tags": ["smoke", "workflow", "fanout"],
       "request": "处理 OpenNeuro ds000001",
       "responses": [true],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "forbidden_steps": [],
+        "expected_interrupts": 1,
+        "max_supervisor_decisions": 8
+      },
       "assertions": [
         {"path": "stage", "operator": "eq", "value": "end"},
         {"path": "report.status", "operator": "eq", "value": "mocked"},
@@ -24,6 +31,13 @@
       "tags": ["smoke", "safety", "qc"],
       "request": "处理 OpenNeuro ds000001",
       "responses": [true],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "qc", "report"],
+        "forbidden_steps": ["db"],
+        "expected_interrupts": 1,
+        "max_supervisor_decisions": 7
+      },
       "fault": {
         "type": "worker_result",
         "worker": "qc",
@@ -57,6 +71,13 @@
         "source": {"name": "missing", "type": "local_path", "path": "__CASE_ROOT__/missing-input"}
       },
       "responses": [true],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "required_steps": ["preflight", "report"],
+        "forbidden_steps": ["source", "fetch", "preprocess", "qc", "db"],
+        "expected_interrupts": 1,
+        "max_supervisor_decisions": 2
+      },
       "must_block_database": true,
       "assertions": [
         {"path": "report.status", "operator": "eq", "value": "failed"},
@@ -73,6 +94,13 @@
         {"execution_plan": ["source", "fetch", "preprocess", "qc", "report"]},
         true
       ],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "qc", "report"],
+        "forbidden_steps": ["db"],
+        "expected_interrupts": 2,
+        "max_supervisor_decisions": 8
+      },
       "assertions": [
         {"path": "report.status", "operator": "eq", "value": "mocked"},
         {"path": "execution_plan", "operator": "not_contains", "value": "db"},
@@ -86,6 +114,13 @@
       "tags": ["smoke", "safety", "hitl", "qc"],
       "request": "处理 OpenNeuro ds000001",
       "responses": [true, "拒绝：配准边界存在明显偏移，需要重新处理"],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "qc", "report"],
+        "forbidden_steps": ["db"],
+        "expected_interrupts": 2,
+        "max_supervisor_decisions": 7
+      },
       "fault": {
         "type": "worker_result",
         "worker": "qc",
@@ -115,6 +150,13 @@
       "tags": ["smoke", "recovery", "retry"],
       "request": "处理 OpenNeuro ds000001",
       "responses": [true],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "forbidden_steps": [],
+        "expected_interrupts": 1,
+        "max_supervisor_decisions": 8
+      },
       "fault": {
         "type": "transient_worker_error",
         "worker": "fetch",
@@ -134,6 +176,13 @@
       "tags": ["smoke", "recovery", "retry", "database"],
       "request": "处理 OpenNeuro ds000001",
       "responses": [true],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "forbidden_steps": [],
+        "expected_interrupts": 1,
+        "max_supervisor_decisions": 8
+      },
       "config_overrides": {"database": {"retry_interval_seconds": 0}},
       "fault": {
         "type": "transient_worker_error",
@@ -154,6 +203,13 @@
       "tags": ["smoke", "recovery", "database", "failure-report"],
       "request": "处理 OpenNeuro ds000001",
       "responses": [true],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "qc", "db", "report"],
+        "forbidden_steps": [],
+        "expected_interrupts": 1,
+        "max_supervisor_decisions": 8
+      },
       "config_overrides": {"database": {"max_attempts": 3, "retry_interval_seconds": 0}},
       "fault": {
         "type": "transient_worker_error",
@@ -166,6 +222,47 @@
         {"path": "db_result.status", "operator": "eq", "value": "failed"},
         {"path": "errors.0.node", "operator": "eq", "value": "db"},
         {"path": "errors.0.exhausted", "operator": "eq", "value": true}
+      ]
+    },
+    {
+      "case_id": "preprocess_only_request_selects_minimal_plan",
+      "description": "A preprocessing-only request must omit QC and database workers instead of running the default full workflow.",
+      "tags": ["agent", "planning", "tool-selection"],
+      "request": "处理 OpenNeuro ds000001，只做预处理",
+      "responses": [true],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "report"],
+        "forbidden_steps": ["qc", "db"],
+        "expected_interrupts": 1,
+        "max_supervisor_decisions": 6
+      },
+      "assertions": [
+        {"path": "report.status", "operator": "eq", "value": "mocked"},
+        {"path": "execution_plan", "operator": "not_contains", "value": "qc"},
+        {"path": "execution_plan", "operator": "not_contains", "value": "db"},
+        {"path": "db_result", "operator": "not_exists"}
+      ]
+    },
+    {
+      "case_id": "natural_language_parameters_are_applied",
+      "description": "Natural-language resource intent must update only managed parameters and omit the database when requested.",
+      "tags": ["agent", "planning", "parameter-accuracy", "tool-selection"],
+      "request": "处理 OpenNeuro ds000001，跳过入库，并行数改成1，每个被试4个进程，内存8GB",
+      "responses": [true],
+      "agent_expectation": {
+        "expected_plan": ["preflight", "source", "fetch", "preprocess", "qc", "report"],
+        "required_steps": ["preflight", "source", "fetch", "preprocess", "qc", "report"],
+        "forbidden_steps": ["db"],
+        "expected_interrupts": 1,
+        "max_supervisor_decisions": 7
+      },
+      "assertions": [
+        {"path": "_evaluation.agent_trace.effective_parameters.max_workers", "operator": "eq", "value": 1},
+        {"path": "_evaluation.agent_trace.effective_parameters.fmriprep_options.nprocs", "operator": "eq", "value": 4},
+        {"path": "_evaluation.agent_trace.effective_parameters.fmriprep_options.memory_mb", "operator": "eq", "value": 8192},
+        {"path": "execution_plan", "operator": "not_contains", "value": "db"},
+        {"path": "db_result", "operator": "not_exists"}
       ]
     }
   ]

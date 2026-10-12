@@ -55,6 +55,14 @@ class FaultSpec(EvalModel):
         return self
 
 
+class AgentExpectation(EvalModel):
+    expected_plan: list[str] | None = None
+    required_steps: list[str] = Field(default_factory=list)
+    forbidden_steps: list[str] = Field(default_factory=list)
+    expected_interrupts: int | None = Field(default=None, ge=0)
+    max_supervisor_decisions: int | None = Field(default=None, ge=1)
+
+
 class EvalCase(EvalModel):
     case_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     description: str
@@ -65,6 +73,7 @@ class EvalCase(EvalModel):
     fault: FaultSpec | None = None
     assertions: list[AssertionSpec] = Field(min_length=1)
     must_block_database: bool = False
+    agent_expectation: AgentExpectation | None = None
 
 
 class EvalSuite(EvalModel):
@@ -234,8 +243,124 @@ def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
         "db_result",
         "report",
         "errors",
+        "supervisor_decisions",
     )
     return {key: state[key] for key in keys if key in state}
+
+
+def _agent_trace(state: dict[str, Any], interrupt_count: int) -> dict[str, Any]:
+    worker_steps = {"preflight", "source", "fetch", "preprocess", "qc", "db", "report"}
+    executed_steps: list[str] = []
+    event_nodes: list[str] = []
+    for event in state.get("events", []):
+        node = str(event.get("node", ""))
+        if not node:
+            continue
+        event_nodes.append(node)
+        if node in worker_steps and node not in executed_steps:
+            executed_steps.append(node)
+    decisions = state.get("supervisor_decisions", [])
+    config = state.get("config", {})
+    preprocess = config.get("preprocess", {})
+    return {
+        "final_plan": list(state.get("execution_plan", [])),
+        "executed_steps": executed_steps,
+        "event_nodes": event_nodes,
+        "interrupt_count": interrupt_count,
+        "supervisor_decision_count": len(decisions),
+        "supervisor_modes": [item.get("mode") for item in decisions],
+        "llm_decision_count": sum(item.get("mode") == "llm" for item in decisions),
+        "effective_parameters": {
+            "runtime_mode": config.get("runtime", {}).get("mode"),
+            "source_type": config.get("source", {}).get("type"),
+            "max_workers": preprocess.get("max_workers"),
+            "fmriprep_options": preprocess.get("fmriprep_options", {}),
+        },
+    }
+
+
+def _evaluate_agent_expectation(
+    trace: dict[str, Any], expectation: AgentExpectation | None
+) -> dict[str, Any] | None:
+    if expectation is None:
+        return None
+    checks: list[dict[str, Any]] = []
+
+    if expectation.expected_plan is not None:
+        checks.append({
+            "name": "exact_plan_match",
+            "expected": expectation.expected_plan,
+            "actual": trace["final_plan"],
+            "passed": trace["final_plan"] == expectation.expected_plan,
+        })
+
+    executed = set(trace["executed_steps"])
+    missing_required = [step for step in expectation.required_steps if step not in executed]
+    checks.append({
+        "name": "required_steps",
+        "expected": expectation.required_steps,
+        "actual": trace["executed_steps"],
+        "missing": missing_required,
+        "passed": not missing_required,
+    })
+    required_index = 0
+    for step in trace["executed_steps"]:
+        if required_index < len(expectation.required_steps) and step == expectation.required_steps[required_index]:
+            required_index += 1
+    step_order_match = required_index == len(expectation.required_steps)
+    checks.append({
+        "name": "required_step_order",
+        "expected": expectation.required_steps,
+        "actual": trace["executed_steps"],
+        "passed": step_order_match,
+    })
+    forbidden_observed = [step for step in expectation.forbidden_steps if step in executed]
+    checks.append({
+        "name": "forbidden_steps",
+        "expected": expectation.forbidden_steps,
+        "actual": forbidden_observed,
+        "passed": not forbidden_observed,
+    })
+
+    if expectation.expected_interrupts is not None:
+        checks.append({
+            "name": "interrupt_count",
+            "expected": expectation.expected_interrupts,
+            "actual": trace["interrupt_count"],
+            "passed": trace["interrupt_count"] == expectation.expected_interrupts,
+        })
+    if expectation.max_supervisor_decisions is not None:
+        checks.append({
+            "name": "supervisor_decision_budget",
+            "expected": expectation.max_supervisor_decisions,
+            "actual": trace["supervisor_decision_count"],
+            "passed": trace["supervisor_decision_count"] <= expectation.max_supervisor_decisions,
+        })
+
+    required_count = len(expectation.required_steps)
+    return {
+        "passed": all(check["passed"] for check in checks),
+        "checks": checks,
+        "plan_evaluated": expectation.expected_plan is not None,
+        "plan_exact_match": (
+            trace["final_plan"] == expectation.expected_plan
+            if expectation.expected_plan is not None
+            else None
+        ),
+        "required_step_recall": (
+            (required_count - len(missing_required)) / required_count
+            if required_count
+            else None
+        ),
+        "step_order_match": step_order_match,
+        "forbidden_action_count": len(forbidden_observed),
+        "hitl_evaluated": expectation.expected_interrupts is not None,
+        "hitl_match": (
+            trace["interrupt_count"] == expectation.expected_interrupts
+            if expectation.expected_interrupts is not None
+            else None
+        ),
+    }
 
 
 def run_case(
@@ -249,6 +374,7 @@ def run_case(
     thread_id = f"eval-{case.case_id}-{uuid4().hex[:8]}"
     state: dict[str, Any] = {}
     execution_error: str | None = None
+    interrupt_count = 0
 
     with _inject_fault(case.fault) as fault_diagnostics:
         try:
@@ -256,6 +382,7 @@ def run_case(
             state = runtime.start(request, config_path, thread_id)
             response_index = 0
             while interrupt_message(state) is not None:
+                interrupt_count += 1
                 if response_index >= len(case.responses):
                     raise RuntimeError(
                         "Evaluation case ran out of responses while the graph was interrupted"
@@ -265,9 +392,15 @@ def run_case(
         except Exception as exc:  # noqa: BLE001 - evaluation reports arbitrary graph failures as data
             execution_error = f"{type(exc).__name__}: {exc}"
 
+    agent_trace = _agent_trace(state, interrupt_count)
+    agent_evaluation = _evaluate_agent_expectation(agent_trace, case.agent_expectation)
     document = {
         **state,
-        "_evaluation": {"fault": fault_diagnostics, "execution_error": execution_error},
+        "_evaluation": {
+            "fault": fault_diagnostics,
+            "execution_error": execution_error,
+            "agent_trace": agent_trace,
+        },
     }
     assertion_results = [
         _evaluate_assertion(document, assertion) for assertion in case.assertions
@@ -285,6 +418,7 @@ def run_case(
         execution_error is None
         and all(item["passed"] for item in assertion_results)
         and not false_pass
+        and (agent_evaluation is None or agent_evaluation["passed"])
     )
     return {
         "case_id": case.case_id,
@@ -298,6 +432,8 @@ def run_case(
         "execution_error": execution_error,
         "fault": fault_diagnostics,
         "assertions": assertion_results,
+        "agent_evaluation": agent_evaluation,
+        "agent_trace": agent_trace,
         "state": _state_summary(state),
         "workspace": str(case_root),
     }
@@ -310,6 +446,20 @@ def _metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     safety_results = [result for result in results if result["must_block_database"]]
     recovery_results = [result for result in results if "recovery" in result["tags"]]
     durations = [float(result["duration_seconds"]) for result in results]
+    agent_results = [result["agent_evaluation"] for result in results if result["agent_evaluation"] is not None]
+    plan_results = [item for item in agent_results if item["plan_evaluated"]]
+    hitl_results = [item for item in agent_results if item["hitl_evaluated"]]
+    required_recalls = [item["required_step_recall"] for item in agent_results if item["required_step_recall"] is not None]
+    ordered_results = [item for item in agent_results if item["required_step_recall"] is not None]
+    decision_counts = [result["agent_trace"]["supervisor_decision_count"] for result in results]
+    executed_counts = [len(result["agent_trace"]["executed_steps"]) for result in results]
+    llm_decision_counts = [result["agent_trace"]["llm_decision_count"] for result in results]
+    tags = sorted({tag for result in results for tag in result["tags"]})
+    tag_pass_rates = {
+        tag: sum(result["passed"] for result in results if tag in result["tags"])
+        / sum(tag in result["tags"] for result in results)
+        for tag in tags
+    }
     return {
         "total_cases": len(results),
         "passed_cases": sum(result["passed"] for result in results),
@@ -332,6 +482,37 @@ def _metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
             if recovery_results
             else None
         ),
+        "agent_cases": len(agent_results),
+        "agent_passed_cases": sum(item["passed"] for item in agent_results),
+        "agent_pass_rate": (
+            sum(item["passed"] for item in agent_results) / len(agent_results)
+            if agent_results
+            else None
+        ),
+        "plan_cases": len(plan_results),
+        "plan_exact_match_rate": (
+            sum(item["plan_exact_match"] for item in plan_results) / len(plan_results)
+            if plan_results
+            else None
+        ),
+        "required_step_recall": mean(required_recalls) if required_recalls else None,
+        "step_order_match_rate": (
+            sum(item["step_order_match"] for item in ordered_results) / len(ordered_results)
+            if ordered_results
+            else None
+        ),
+        "forbidden_action_count": sum(item["forbidden_action_count"] for item in agent_results),
+        "hitl_cases": len(hitl_results),
+        "hitl_match_rate": (
+            sum(item["hitl_match"] for item in hitl_results) / len(hitl_results)
+            if hitl_results
+            else None
+        ),
+        "supervisor_decisions_mean": round(mean(decision_counts), 3),
+        "executed_steps_mean": round(mean(executed_counts), 3),
+        "llm_decision_cases": sum(count > 0 for count in llm_decision_counts),
+        "llm_decision_count": sum(llm_decision_counts),
+        "tag_pass_rates": tag_pass_rates,
         "duration_mean_seconds": round(mean(durations), 3),
         "duration_median_seconds": round(median(durations), 3),
     }
@@ -347,15 +528,24 @@ def _markdown_report(report: dict[str, Any]) -> str:
         f"- Cases: {metrics['passed_cases']}/{metrics['total_cases']}",
         f"- Assertions: {metrics['passed_assertions']}/{metrics['total_assertions']}",
         f"- False passes: {metrics['false_pass_count']}",
+        f"- Agent behavior cases: {metrics['agent_passed_cases']}/{metrics['agent_cases']}",
+        f"- Exact plan match: {metrics['plan_exact_match_rate']}",
+        f"- Required-step recall: {metrics['required_step_recall']}",
+        f"- Step-order match: {metrics['step_order_match_rate']}",
+        f"- Forbidden actions: {metrics['forbidden_action_count']}",
+        f"- HITL match rate: {metrics['hitl_match_rate']}",
+        f"- LLM decision coverage: {metrics['llm_decision_cases']}/{metrics['total_cases']} cases",
         f"- Mean duration: {metrics['duration_mean_seconds']} s",
         "",
-        "| Case | Result | Duration (s) | DB reached | False pass |",
-        "|---|---:|---:|---:|---:|",
+        "| Case | Result | Agent | Decisions | Duration (s) | DB reached | False pass |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for result in report["results"]:
         lines.append(
             f"| `{result['case_id']}` | {'PASS' if result['passed'] else 'FAIL'} | "
-            f"{result['duration_seconds']} | {result['database_reached']} | {result['false_pass']} |"
+            f"{'PASS' if result['agent_evaluation'] and result['agent_evaluation']['passed'] else ('N/A' if result['agent_evaluation'] is None else 'FAIL')} | "
+            f"{result['agent_trace']['supervisor_decision_count']} | {result['duration_seconds']} | "
+            f"{result['database_reached']} | {result['false_pass']} |"
         )
     failures = [
         (result["case_id"], assertion)
@@ -368,6 +558,19 @@ def _markdown_report(report: dict[str, Any]) -> str:
         lines.extend(
             f"- `{case_id}`: `{item['path']} {item['operator']} {item['expected']!r}`; actual={item['actual']!r}"
             for case_id, item in failures
+        )
+    agent_failures = [
+        (result["case_id"], check)
+        for result in report["results"]
+        if result["agent_evaluation"] is not None
+        for check in result["agent_evaluation"]["checks"]
+        if not check["passed"]
+    ]
+    if agent_failures:
+        lines.extend(["", "## Failed Agent Checks", ""])
+        lines.extend(
+            f"- `{case_id}`: `{item['name']}`; expected={item['expected']!r}, actual={item['actual']!r}"
+            for case_id, item in agent_failures
         )
     return "\n".join(lines) + "\n"
 
@@ -400,7 +603,7 @@ def run_suite(
     results = [run_case(case, base_config, workspace_root) for case in selected]
     metrics = _metrics(results)
     report = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "generated_at": generated_at,
         "suite": {
             "name": suite.name,
@@ -410,8 +613,13 @@ def run_suite(
         },
         "quality_gate": {
             "passed": metrics["passed_cases"] == metrics["total_cases"]
-            and metrics["false_pass_count"] == 0,
-            "requirements": ["all selected cases pass", "false_pass_count equals zero"],
+            and metrics["false_pass_count"] == 0
+            and metrics["forbidden_action_count"] == 0,
+            "requirements": [
+                "all selected cases pass",
+                "false_pass_count equals zero",
+                "forbidden_action_count equals zero",
+            ],
         },
         "metrics": metrics,
         "results": results,
