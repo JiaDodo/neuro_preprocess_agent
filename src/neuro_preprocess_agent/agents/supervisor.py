@@ -109,6 +109,61 @@ class Supervisor:
         completed: list[str],
         skipped: list[str],
     ) -> SupervisorDecision:
+        output = self._invoke_llm(
+            state, plan, completed, skipped, include_raw=False
+        )
+        if isinstance(output, SupervisorDecision):
+            return output
+        return SupervisorDecision.model_validate(output)
+
+    def invoke_llm_for_evaluation(self, state: PipelineState) -> dict[str, Any]:
+        """Invoke the production planner while preserving raw and constrained outputs."""
+        plan = list(state.get("execution_plan") or self.default_plan(state))
+        completed = list(dict.fromkeys(state.get("completed_steps", [])))
+        skipped = list(dict.fromkeys(state.get("skipped_steps", [])))
+        result = self._invoke_llm(
+            state, plan, completed, skipped, include_raw=True
+        )
+        parsed = result.get("parsed")
+        parsing_error = result.get("parsing_error")
+        if parsing_error is not None:
+            raise ValueError(f"Structured output parsing failed: {parsing_error}")
+        decision = (
+            parsed
+            if isinstance(parsed, SupervisorDecision)
+            else SupervisorDecision.model_validate(parsed)
+        )
+        constrained_plan = self._validate_plan(list(decision.execution_plan), state)
+        constrained_next = self._safe_next(
+            constrained_plan, completed, skipped + list(decision.skip_steps), decision.next_node
+        )
+        raw = result.get("raw")
+        response_metadata = getattr(raw, "response_metadata", {}) or {}
+        usage_metadata = getattr(raw, "usage_metadata", None) or response_metadata.get(
+            "token_usage", {}
+        )
+        return {
+            "raw_decision": decision.model_dump(mode="json", exclude_none=True),
+            "constrained_plan": constrained_plan,
+            "constrained_next_node": constrained_next,
+            "usage": dict(usage_metadata),
+            "response": {
+                "id": getattr(raw, "id", None),
+                "model": response_metadata.get("model_name")
+                or response_metadata.get("model"),
+                "finish_reason": response_metadata.get("finish_reason"),
+            },
+        }
+
+    def _invoke_llm(
+        self,
+        state: PipelineState,
+        plan: list[str],
+        completed: list[str],
+        skipped: list[str],
+        *,
+        include_raw: bool,
+    ) -> Any:
         settings = state["config"]["supervisor"]
         if settings.get("provider", "deepseek") != "deepseek":
             raise ValueError(f"Unsupported supervisor provider: {settings.get('provider')}")
@@ -142,14 +197,16 @@ class Supervisor:
         }
         if settings.get("extra_body"):
             model_kwargs["extra_body"] = settings["extra_body"]
-        model = ChatDeepSeek(**model_kwargs).with_structured_output(SupervisorDecision)
-        decision = model.invoke([
+        model = ChatDeepSeek(**model_kwargs)
+        structured = (
+            model.with_structured_output(SupervisorDecision, include_raw=True)
+            if include_raw
+            else model.with_structured_output(SupervisorDecision)
+        )
+        return structured.invoke([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)},
         ])
-        if isinstance(decision, SupervisorDecision):
-            return decision
-        return SupervisorDecision.model_validate(decision)
 
     def _validate_plan(self, plan: list[str], state: PipelineState) -> list[str]:
         normalized = [step for step in dict.fromkeys(plan) if step in ALLOWED_STEPS]

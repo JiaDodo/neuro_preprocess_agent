@@ -110,7 +110,7 @@
 - NIfTI 转换输出按 run id 隔离。
 - 配置拼写错误不会被静默忽略。
 
-共 57 项自动测试通过；`langgraph dev` 已验证可以加载 `pipeline` 图。
+共 63 项自动测试通过；`langgraph dev` 已验证可以加载 `pipeline` 图。
 
 此外已增加分层评测框架：以严格 JSON 用例驱动完整 LangGraph `interrupt/resume`，在
 Worker Registry 边界注入故障，并从 `events` 与 `supervisor_decisions` 提取真实执行轨迹。
@@ -118,6 +118,11 @@ Worker Registry 边界注入故障，并从 `events` 与 `supervisor_decisions` 
 决策开销、故障恢复率和数据库 `false_pass_count`。当前默认 suite 使用规则 Supervisor，
 报告显式显示 LLM 决策覆盖为 0，避免将确定性策略结果表述为模型能力。详见
 `docs/evaluation.md`。
+
+另使用 30 条人工审核的 LLM Supervisor 规划用例（dev 20、test 10）完成每条 3 次的真实
+模型回放。90/90 次结构化调用通过，原始计划和受管参数完全匹配率均为 100%，禁用动作与参数
+幻觉均为 0，可执行决策一致性为 100%；该结果只覆盖初始计划生成，不代表运行中动态重规划或
+真实预处理成功率。详见 `docs/llm_supervisor_benchmark_20261012.md`。
 
 现有真实数据 `sub-local-demo` 已用新版规则重新验证：关键输出和 4 个 NIfTI header 通过，confounds 共 240 行，12 个视觉报告产物存在，fMRIPrep 成功日志通过。该结果只代表结构与产物完整，不代表已经完成视觉异常诊断。
 

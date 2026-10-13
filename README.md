@@ -232,6 +232,13 @@ HITL 升级和 Supervisor 决策开销，并将其与数据库误放行指标共
 使用规则 Supervisor，因此这些轨迹指标不代表 LLM 规划准确率；详细定义见
 [评测文档](docs/evaluation.md)。
 
+真实 LLM Supervisor 使用独立的 30 条人工审核数据集（`dev=20/test=10`）。候选请求和答案可
+自动生成到 CSV，人工只需确认计划、禁用动作和受管参数，审核后再冻结为 JSONL；具体流程见
+[LLM Supervisor 人工评测集](docs/llm_supervisor_evaluation.md)。
+在固定的 30 条人工审核用例上进行了每条 3 次的真实模型回放：90/90 次结构化调用通过，原始
+计划和受管参数完全匹配率均为 100%，禁用动作 0；该结果仅代表受约束初始规划能力，详见
+[LLM Supervisor 回放结果](docs/llm_supervisor_benchmark_20261012.md)。
+
 并发评测通过生产 LangGraph 图执行 12 个固定时长 subject 任务：`max_workers=4` 时相对
 单 worker 达到 `3.80x` 加速和 `94.9%` 并行效率，且实测峰值并发未超过配置上限。既有
 七被试真实 fMRIPrep 计算的峰值并发为 4、整体吞吐为 `4.16 subjects/hour`；这些真实数据

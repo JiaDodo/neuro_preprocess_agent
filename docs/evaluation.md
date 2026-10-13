@@ -143,7 +143,12 @@ Suite 使用严格 Pydantic schema 校验。一个用例由以下信息组成：
 
 固定用户请求、工具 catalog 和 Worker observation，记录结构化 Supervisor 输出并回放，统计
 schema 合法率、计划匹配率、参数正确率、非法 Worker 选择、人工升级准确率、平均模型调用
-次数、token 和时延。该层尚未完成，因此当前项目不能宣称已经验证 LLM 动态重规划能力。
+次数、token 和时延。当前已经建立 30 条候选用例的生成、人工 CSV 审核与 JSONL 冻结协议，
+并完成 30 条用例、每条 3 次的真实模型回放。当前结果为 90/90 运行通过、Schema 合法率
+100%、原始计划与参数完全匹配率 100%、禁用动作 0；测试只覆盖初始规划，不能据此宣称已经
+验证运行中的 LLM 动态重规划能力。操作方法和边界见
+[`llm_supervisor_evaluation.md`](llm_supervisor_evaluation.md) 与
+[`llm_supervisor_benchmark_20261012.md`](llm_supervisor_benchmark_20261012.md)。
 
 ### L4 真实工具集成评测
 

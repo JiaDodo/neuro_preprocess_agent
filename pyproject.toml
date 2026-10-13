@@ -19,6 +19,8 @@ dependencies = [
 [project.scripts]
 neuro-agent = "neuro_preprocess_agent.cli:main"
 neuro-agent-eval = "neuro_preprocess_agent.evaluation_cli:main"
+neuro-agent-eval-dataset = "neuro_preprocess_agent.supervisor_dataset_cli:main"
+neuro-agent-eval-llm = "neuro_preprocess_agent.supervisor_llm_eval_cli:main"
 
 [project.optional-dependencies]
 dev = [

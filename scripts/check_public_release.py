@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_DIRECTORIES = {"data", "runs", "local", "example_data", ".venv", ".venv-server"}
+PUBLIC_DATA_FILES = {"evals/llm_supervisor/review.csv"}
 PRIVATE_SUFFIXES = (
     ".csv", ".dcm", ".dicom", ".nii", ".nii.gz", ".safetensors", ".pt", ".pth",
     ".ckpt", ".sqlite", ".sqlite3", ".db", ".npy", ".npz", ".joblib",
@@ -27,11 +28,14 @@ def main() -> None:
     for name in names:
         path = Path(name)
         is_private = (
-            path.parts[0] in PRIVATE_DIRECTORIES
-            or (path.name.startswith(".env") and path.name != ".env.example")
-            or path.name.endswith(".local.json")
-            or path.name == "license.txt"
-            or name.lower().endswith(PRIVATE_SUFFIXES)
+            name not in PUBLIC_DATA_FILES
+            and (
+                path.parts[0] in PRIVATE_DIRECTORIES
+                or (path.name.startswith(".env") and path.name != ".env.example")
+                or path.name.endswith(".local.json")
+                or path.name == "license.txt"
+                or name.lower().endswith(PRIVATE_SUFFIXES)
+            )
         )
         if is_private:
             problems.append(f"Private data/config candidate: {name}")

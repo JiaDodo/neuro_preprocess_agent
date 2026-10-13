@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added a 30-case human-reviewed LLM Supervisor dataset with dev/test splits, CSV review, strict validation, and frozen JSONL export.
+- Added production-prompt LLM replay evaluation for raw versus constrained plans, parameter accuracy, forbidden actions, repeat stability, latency, and token usage.
+- Completed 90 real Supervisor calls across the approved dataset with 100% schema validity, plan/parameter exact match, and executable-decision stability.
 - Added Golden trajectory contracts and Agent behavior metrics for plan matching, required and forbidden Worker calls, execution order, HITL escalation, decision budgets, and explicit LLM-decision coverage.
 - Added pre-fMRIPrep anatomical input QC with per-subject skull-stripping decisions, conservative HITL review, command fingerprint updates, and real ten-subject validation.
 - Restricted CLI `--yes` to initial plan approval so preflight, input-QC, and output-QC reviews still require explicit human decisions.
